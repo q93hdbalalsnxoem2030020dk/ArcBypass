@@ -9,7 +9,7 @@ const rl = readline.createInterface({
     output: process.stdout
 });
 
-function parseUrlParams(url) {
+function getUrlParams(url) {
     const params = new URLSearchParams(new URL(url).search);
     return {
         hwid: params.get('hwid') || 'unknown',
@@ -18,49 +18,38 @@ function parseUrlParams(url) {
     };
 }
 
-async function promptForUrl() {
+async function askForUrl() {
     return new Promise((resolve) => {
-        rl.question('Enter the URL for Layer 1: ', (url) => {
+        rl.question('Arc Bypass [URL] >', (url) => {
             resolve(url);
             rl.close();
         });
     });
 }
 
-async function fetchLayer(url) {
-    try {
-        const response = await axios.get(url, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/104.0.0.0 Safari/537.36',
-                'Referer': 'https://spdmteam.com/'
-            }
-        });
-        return response.data;
-    } catch (error) {
-        console.error(`Error fetching ${url}: ${error.message}`);
-        return null;
-    }
-}
-
-async function createNotification(message) {
+async function NotifyBitch(message) {
     console.log(`[NOTIFICATION]: ${message}`);
 }
 
-async function bypassLayer(page) {
+async function pause(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function bypassPage(page) {
     const content = await page.content();
     const $ = cheerio.load(content);
     
-    const hwidFound = $('*').filter((i, el) => $(el).text().includes(hwid)).length > 0;
-    if (hwidFound) {
+    const foundHwid = $('*').filter((i, el) => $(el).text().includes(hwid)).length > 0;
+    if (foundHwid) {
         console.log('HWID found on the page.');
         return true;
     }
 
-    await delay(1000);  // Delay before trying alternative methods
-    return await alternativeMethod(page);
+    await pause(1000);
+    return await tryAlternative(page);
 }
 
-async function alternativeMethod(page) {
+async function tryAlternative(page) {
     const content = await page.content();
     const $ = cheerio.load(content);
     const success = $('*').filter((i, el) => $(el).text().includes('success')).length > 0;
@@ -72,46 +61,65 @@ async function alternativeMethod(page) {
     return false;
 }
 
-async function searchForKeyElements(page) {
+async function findKeyElements(page) {
     const content = await page.content();
     const $ = cheerio.load(content);
     let foundKey = false;
+    
     $('*').each((i, el) => {
         const text = $(el).text().toLowerCase();
         if (text.includes('key') || text.includes('token')) {
             foundKey = true;
         }
     });
+
+    if (foundKey) {
+        console.log('Key or token found.');
+        await activateKey(page);
+    }
     return foundKey;
 }
 
-async function searchForRobloxConnections(page) {
+async function activateKey(page) {
+    try {
+        const keyInput = await page.$('input[name="key"]');
+        if (keyInput) {
+            const keyValue = await page.evaluate(el => el.value, keyInput);
+            console.log(`Activating key/token: ${keyValue}`);
+            await axios.post('https://example.com/activate', { key: keyValue });
+        }
+    } catch (error) {
+        console.error(`Error activating key/token: ${error.message}`);
+    }
+}
+
+async function checkRoblox(page) {
     const content = await page.content();
     const $ = cheerio.load(content);
     let foundConnection = false;
     $('*').each((i, el) => {
         const text = $(el).text().toLowerCase();
-        if (text.includes('roblox') || text.includes('key system') || text.includes('token')) {
+        if (text.includes('roblox') || text.includes('key-system') || text.includes('token')) {
             foundConnection = true;
         }
     });
     return foundConnection;
 }
 
-async function scanAndActivateFinalLayer(page) {
-    const keyFound = await searchForKeyElements(page);
+async function scanFinalLayer(page) {
+    const keyFound = await findKeyElements(page);
     if (keyFound) {
         console.log('Final layer key found. Activating...');
-        await createNotification('Arc Bypass Completed');
+        await NotifyBitch('Arc Bypass Completed');
         return;
     }
-    const connectionFound = await searchForRobloxConnections(page);
+    const connectionFound = await checkRoblox(page);
     if (connectionFound) {
         console.log('Final layer Roblox connection found. Activating...');
-        await createNotification('Arc Bypass Completed');
+        await NotifyBitch('Arc Bypass Completed');
         return;
     }
-    await createNotification('Arc Bypass Failed');
+    await NotifyBitch('Arc Bypass Failed');
 }
 
 async function solveCaptcha(page) {
@@ -120,7 +128,7 @@ async function solveCaptcha(page) {
         const captchaButton = await page.$('selector-for-captcha-button');
         if (captchaButton) {
             await captchaButton.click();
-            await delay(2000);  // Wait for captcha to be solved
+            await pause(2000);
         } else {
             console.log('Captcha button not found.');
         }
@@ -129,14 +137,14 @@ async function solveCaptcha(page) {
     }
 }
 
-async function runProcess() {
-    const url = await promptForUrl();
-    const { hwid, zone, os } = parseUrlParams(url);
+async function run() {
+    const url = await askForUrl();
+    const { hwid, zone, os } = getUrlParams(url);
     const finalUrl = `https://spdmteam.com/key-system-getkey?hwid=${hwid}&zone=${zone}&os=${os}`;
 
-    await createNotification('Arc Bypass V1');
-    await delay(3000);
-    await createNotification('Please Wait');
+    await NotifyBitch('Arc Bypass V1');
+    await pause(3000);
+    await NotifyBitch('Please Wait');
 
     const startTime = performance.now();
     const browser = await puppeteer.launch();
@@ -153,27 +161,26 @@ async function runProcess() {
         await solveCaptcha(page);
 
         const html = await page.content();
-        const layerSuccess = await bypassLayer(page);
+        const layerSuccess = await bypassPage(page);
         if (layerSuccess) {
             if (i === 2) {
                 const endTime = performance.now();
                 const bypassTime = ((endTime - startTime) / 1000).toFixed(2);
-                await createNotification(`Arc Bypass: ${bypassTime} seconds`);
-                await delay(3000);
+                await NotifyBitch(`Arc Bypass: ${bypassTime} seconds`);
+                await pause(3000);
             }
             break;
         } else {
-            await delay(3000);
+            await pause(3000);
         }
     }
 
-    await delay(3000);
+    await pause(3000);
 
     await page.goto(finalUrl, { waitUntil: 'networkidle2' });
-    await scanAndActivateFinalLayer(page);
+    await scanFinalLayer(page);
 
     await browser.close();
 }
 
-runProcess();
-      
+run();
